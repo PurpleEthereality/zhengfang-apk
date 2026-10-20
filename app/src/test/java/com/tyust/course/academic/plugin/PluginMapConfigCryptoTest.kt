@@ -1,5 +1,6 @@
 package com.tyust.course.academic.plugin
 
+import android.app.Application
 import android.util.Base64
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -14,7 +15,7 @@ import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class PluginMapConfigCryptoTest {
     private fun fixture() = JSONObject(javaClass.getResourceAsStream("/map-client-config-v1.json")!!.bufferedReader().use { it.readText() })
     private fun bytes(value: String) = Base64.decode(value, Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING)
