@@ -1,5 +1,6 @@
 package com.tyust.course.academic.plugin
 
+import android.app.Application
 import android.util.Base64
 import okhttp3.Request
 import org.json.JSONObject
@@ -10,7 +11,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class PluginMapRequestAuthTest {
     @Test fun requestProofMatchesIndependentNodeHmacAndBindsTheQuery() {
         fun proof(query: String): String {

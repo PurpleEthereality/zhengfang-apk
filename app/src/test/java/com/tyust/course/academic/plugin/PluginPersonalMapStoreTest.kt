@@ -1,5 +1,6 @@
 package com.tyust.course.academic.plugin
 
+import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.After
@@ -14,7 +15,7 @@ import java.io.IOException
 import javax.crypto.spec.SecretKeySpec
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [28], manifest = Config.NONE)
+@Config(sdk = [28], manifest = Config.NONE, application = Application::class)
 class PluginPersonalMapStoreTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val key = SecretKeySpec(ByteArray(32) { 7 }, "AES")
