@@ -30,6 +30,7 @@ class CourseApplication : Application() {
             AppearanceSettingsManager.initialize(this)
             AppThemeCoordinator.initialize(this)
             com.tyust.course.schedule.ScheduleReminderScheduler.get(this).start(this)
+            com.tyust.course.schedule.ClassQuietManager.get(this).start(this)
             com.tyust.course.schedule.ScheduleWidgetUpdater.start(this)
             com.tyust.course.usage.UsageStatsManager.initialize(this)
             com.tyust.course.survey.SurveyVisitTracker.initialize(this)

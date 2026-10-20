@@ -115,6 +115,8 @@ fun SettingsRoute(
     var showWallpaperDialog by remember { mutableStateOf(false) }
     var showThemeDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
     var showStartupPageDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var showClassQuietDialog by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    val classQuietManager = remember(context) { com.tyust.course.schedule.ClassQuietManager.get(context) }
     val pageRevision by PluginPages.revision.collectAsState()
     val startupPages = remember(pageRevision) { PluginPages.registry.pages() }
     val startupRoute = remember(pageRevision) { PluginPages.registry.preferredStartup() }
@@ -346,6 +348,8 @@ fun SettingsRoute(
         onNavBarAutoCollapseChange = { AppearanceSettingsManager.updateNavBarAutoCollapse(it) },
         usageEnabled = usagePreferences.enabled,
         onUsageEnabledChange = com.tyust.course.usage.UsageStatsManager::setEnabled,
+        classQuietSummary = classQuietManager.status.summary,
+        onClassQuietSettings = { showClassQuietDialog = true },
         isSuper = isSuper,
         quotaInfo = quotaInfo,
         canRefreshCookie = canRefreshCookie,
@@ -362,6 +366,9 @@ fun SettingsRoute(
     
     if (showThemeDialog) {
         com.tyust.course.ui.screen.AppThemeSettingsDialog { showThemeDialog = false }
+    }
+    if (showClassQuietDialog) {
+        com.tyust.course.ui.screen.ClassQuietSettingsDialog { showClassQuietDialog = false }
     }
     if (showStartupPageDialog) {
         com.tyust.course.ui.screen.StartupPageSettingsDialog(
@@ -431,6 +438,9 @@ fun SettingsRoute(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 val updates = listOf(
+                    "2026-10-20 · 1.0.127" to "新增上课自动静音，入口在设置的课表自动化中，默认关闭；按本学期课表上下课切换声音，支持单双周、自定义课程和调停课，保留课中手动调整；修复脚本浏览器章节题页和 iframe 页面函数读取，以及插件长日志滚动。SDK 3.7.2 / API 3 兼容，学习通插件继续独立本地交付。",
+                    "2026-10-15 · 1.0.126" to "修复河北传媒统一认证回调与教务会话复用，青果通用协议支持已配置的 CAS AES 账号密码登录；同步 SDK 3.7.1 认证跳转及网络用途规则。学习通插件独立本地交付，不随 App 上架。",
+                    "2026-10-14 · 1.0.125" to "修复辽宁工程技术大学输入账号密码后仍需在学校网页重复填写的问题，保留校方加密和滑块验证，完成认证后核对会话并返回 App；完善动态页面加载、重复提交及手动修改输入的处理。",
                     "2026-10-14 · 1.0.124" to "新增青果教务和湖南汽车工程职业大学适配，支持统一认证账号密码登录、课表、成绩、考试及选课查询；新增辽宁工程技术大学 WebVPN 教务入口，完善课表、成绩和考试读取；修复安装学校插件并选择使用后，登录仍走旧内置适配的问题，选择后保留原学校与账号记录。两校选退课以学校实际开放情况为准。",
                     "2026-10-14" to "新增原生插件后台作业队列，启动一次即固定本轮作业与自动操作范围，离开插件页后继续运行，并可随时从插件页或常驻通知停止；修复多页面存在同名按钮时后台操作可能选错页面的问题，自动操作绑定自己启动的作业及实际文档。另行安装学习通 0.2.8 r8 插件后，作业页新增独立设置，支持自动提交与自动下一份，默认关闭并按账号保存，仅在平台确认已提交或保存成功后继续；作业缺少答案、保存失败、出现额外提示或提交结果不明时会暂停并保留结果与恢复入口，每份作业的保存与提交不会自动重复发送，同时新增本轮处理记录。",
                     "2026-10-13" to "新增多套作息时间预设，可在当前学期应用与撤回；修复统一登录连续跳转后无法进入教务；修复后台课程提醒可能丢失，覆盖提前十分钟提醒，冷启动与系统恢复会重新登记，避免未送达提醒被下周覆盖，登录过期后仍可使用本地课表提醒；签到选点接入高德原生地图，支持缩放、点选与坐标换算，手动选点不消耗搜索额度；新增设置中的地图服务，可接入自己的高德服务密钥，仅供本人设备搜索，失效或额度耗尽时明确提示；修复国内地址解析过度截断与校区、小区、航站楼名称丢失；修复插件多页面与后台任务并发时脚本引擎崩溃、页面持续加载和插件进程失败，并修复学习进度已保存却显示任务出错。",

@@ -42,6 +42,7 @@ import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material.icons.outlined.VolumeOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -105,6 +106,8 @@ fun SettingsScreen(
     onNavBarAutoCollapseChange: (Boolean) -> Unit = {},
     usageEnabled: Boolean = true,
     onUsageEnabledChange: (Boolean) -> Unit = {},
+    classQuietSummary: String = "按课表静音，下课恢复原来的声音模式",
+    onClassQuietSettings: () -> Unit = {},
     isSuper: Boolean = false,
     quotaInfo: String = "",
     canRefreshCookie: Boolean = false,
@@ -257,6 +260,12 @@ fun SettingsScreen(
                         )
                     }
                 )
+            }
+
+            InsetGroupedSection(Modifier.moduleEntrance(3), header = "课表自动化") {
+                SettingsRow(icon = Icons.Outlined.VolumeOff, iconTint = MaterialTheme.colorScheme.primary,
+                    title = "上课自动静音", subtitle = classQuietSummary,
+                    onClick = onClassQuietSettings, showDivider = false)
             }
 
             InsetGroupedSection(Modifier.moduleEntrance(3), header = "应用与支持") {

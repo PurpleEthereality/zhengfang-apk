@@ -21,7 +21,7 @@ internal object ScheduleBackgroundRefresh {
     fun sync(context: Context, reminders: Boolean = ScheduleReminderScheduler.get(context).hasScheduledReminders()) {
         val jobs = context.getSystemService(JobScheduler::class.java)
         val widgets = AppWidgetManager.getInstance(context)
-        val needed = reminders || ScheduleWidgetStyle.entries.any {
+        val needed = reminders || ClassQuietManager.get(context).needsBackgroundRefresh || ScheduleWidgetStyle.entries.any {
             widgets.getAppWidgetIds(ComponentName(context, it.provider)).isNotEmpty()
         }
         if (!needed) { jobs.cancel(JOB_ID); return }
@@ -36,6 +36,7 @@ internal object ScheduleBackgroundRefresh {
     fun refresh(context: Context) {
         UserManager.getInstance().init(context)
         ScheduleReminderScheduler.get(context).reconcile(restoreAlarms = true)
+        ClassQuietManager.get(context).reconcile()
         ScheduleWidgetUpdater.update(context)
     }
 }
