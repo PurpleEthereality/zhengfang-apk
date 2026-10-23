@@ -1,5 +1,6 @@
 package com.tyust.course.schedule
 
+import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.res.Configuration
@@ -316,14 +317,11 @@ class ScheduleWidgetTest {
             details.forEach { (id, label) ->
                 if (root.findViewById<View>(id).visibility == View.VISIBLE) assertCompleteLabel(root, id, label)
             }
-            val timer = requireNotNull(root.findViewById<android.widget.Chronometer>(R.id.widget_countdown))
-            assertTrue(timer.isCountDown)
-            // Chronometer 的 base 必须落在开机时间轴上：倒计时显示的剩余时间要等于墙上时钟的剩余时间。
-            // 直接把 epoch 毫秒当 base 会变成几十万小时——这就是之前算错的原因。
-            val remainingOnWidget = timer.base - android.os.SystemClock.elapsedRealtime()
-            val remainingOnClock = requireNotNull(state.countdownAt) - System.currentTimeMillis()
-            assertTrue("$size countdown must use the uptime timebase: $remainingOnWidget vs $remainingOnClock",
-                kotlin.math.abs(remainingOnWidget - remainingOnClock) < 60_000L)
+            val timer = requireNotNull(root.findViewById<TextView>(R.id.widget_countdown))
+            // 自定义倒计时 View 每秒重算剩余时间；刚渲染时应显示 45 分钟附近，而不是错误的时间轴。
+            val shown = timer.text.toString()
+            assertTrue("$size countdown shows the remaining time instead of a stale timebase: $shown",
+                shown == "45:00" || shown == "44:59")
             assertTrue("$size header", root.findViewById<View>(R.id.widget_header).isClickable)
             assertTrue(root.findViewById<View>(R.id.widget_course).performClick())
             ScheduleWidgetNavigation.accept(shadowOf(context as Application).nextStartedActivity)
@@ -347,15 +345,24 @@ class ScheduleWidgetTest {
     }
 
     @Test @Config(sdk = [33]) @GraphicsMode(GraphicsMode.Mode.NATIVE)
-    fun countdownClampsToZeroInsteadOfCountingIntoNegativeNumbersAfterABoundary() {
-        // 夹具里的 countdownAt 是 2026-09-07 的课间边界，早已过去：模拟“边界刷新没到、计时器继续走”。
+    fun runningCountdownStopsAtZeroInsteadOfCountingIntoNegativeNumbers() {
+        // 先渲染一个仍在未来的目标，再只推进宿主时间、不重新渲染：模拟边界广播被系统推迟。
+        // 目标留 1 分钟，避免 Robolectric 首次 inflate 的耗时把目标提前跨过去。
         val state = ScheduleWidgetState.from(snapshot(), now)
+            .copy(countdownAt = System.currentTimeMillis() + 60_000L, countdownLabel = "距下课")
+        // 把组件挂到真实窗口上，Chronometer 才会像在桌面上一样每秒推进。
+        val activity = org.robolectric.Robolectric.buildActivity(Activity::class.java).setup().get()
+        val parent = FrameLayout(activity)
+        activity.setContentView(parent)
         val root = ScheduleWidgetRenderer.views(context, state, 280, 128, ScheduleWidgetStyle.Countdown)
-            .apply(context, FrameLayout(context)) as ViewGroup
-        val timer = requireNotNull(root.findViewById<android.widget.Chronometer>(R.id.widget_countdown))
-        // isCountDown 只表示计时方向；越过边界后由 started=false 停住，并钳制显示 00:00。
+            .apply(activity, parent) as ViewGroup
+        parent.addView(root)
+        val timer = requireNotNull(root.findViewById<TextView>(R.id.widget_countdown))
+        assertNotEquals("countdown starts in the future: ${timer.text}", "00:00", timer.text.toString())
+        // 旧实现（Chronometer）越过 base 后会继续走成 -00:xx；新的倒计时 View 必须停在 00:00。
+        repeat(65) { shadowOf(android.os.Looper.getMainLooper()).idleFor(1, java.util.concurrent.TimeUnit.SECONDS) }
         assertEquals("00:00", timer.text.toString())
-        assertEquals("00:00", root.findViewById<TextView>(R.id.widget_countdown).text.toString())
+        assertFalse("stale countdown must not keep counting down", timer.text.toString().startsWith("-"))
         assertEquals(View.VISIBLE, root.findViewById<View>(R.id.widget_countdown_box).visibility)
     }
 
@@ -384,10 +391,39 @@ class ScheduleWidgetTest {
         assertEquals("距下课", secondHalf.label)
         assertEquals(at("10:45"), secondHalf.at)
         assertNotNull(ScheduleWidgetCountdown.progress(stateAt("10:10"), secondHalf))
+        // 进度条按剩余时间从满格走到 0：越接近小节结束，剩余比例越小。
+        val earlyProgress = requireNotNull(ScheduleWidgetCountdown.progress(stateAt("08:10"), firstHalf))
+        val lateProgress = requireNotNull(ScheduleWidgetCountdown.progress(stateAt("08:40"), resolve("08:40")))
+        assertTrue("progress must start near 100%: $earlyProgress", earlyProgress > 0.6f)
+        assertTrue("progress must shrink towards 0: $lateProgress", lateProgress < 0.2f)
         // 关闭选项：整门课只倒计时到下课，不拆分。
         val whole = resolve("08:10", segmented = false)
         assertEquals("距下课", whole.label)
         assertEquals(at("10:45"), whole.at)
+    }
+
+    @Test fun segmentedCountdownFallsBackWhenALaterSegmentTimeIsMissingOrReversed() {
+        fun at(clock: String) = SimpleDateFormat("yyyy-MM-dd HH:mm").parse("2026-09-07 $clock")!!.time
+        val long = course.copy(endPeriod = 3)
+        // 第二小节缺结束时间：即使当前落在第一小节里，也必须先校验后面的节次，不能给出分段倒计时。
+        val missing = ScheduleTimeBase("2026-09-07",
+            mapOf(1 to "08:00", 2 to "08:50", 3 to "09:40"),
+            mapOf(1 to "08:45", 3 to "10:25"))
+        val missingState = ScheduleWidgetState.from(
+            snapshot().copy(courses = listOf(long), timeBase = missing), at("08:10"))
+        val missingTarget = requireNotNull(ScheduleWidgetCountdown.resolve(missingState, segmented = true))
+        assertEquals("距下课", missingTarget.label)
+        assertEquals(at("10:25"), missingTarget.at)
+
+        // 第二小节的结束时间早于开始时间：同样不能按分段显示。
+        val reversed = ScheduleTimeBase("2026-09-07",
+            mapOf(1 to "08:00", 2 to "08:50", 3 to "09:40"),
+            mapOf(1 to "08:45", 2 to "08:20", 3 to "10:25"))
+        val reversedState = ScheduleWidgetState.from(
+            snapshot().copy(courses = listOf(long), timeBase = reversed), at("08:10"))
+        val reversedTarget = requireNotNull(ScheduleWidgetCountdown.resolve(reversedState, segmented = true))
+        assertEquals("距下课", reversedTarget.label)
+        assertEquals(at("10:25"), reversedTarget.at)
     }
 
     @Test fun segmentedCountdownSchedulesTheBreakBoundaryInsteadOfOnlyTheCourseEnd() {
@@ -425,6 +461,39 @@ class ScheduleWidgetTest {
             // 课间文案必须完整可读，不能被倒计时盒子挤成“课间休息…”
             assertEquals("$width x $height label text", "课间休息 · 距上课", label.text.toString())
             assertEquals("$width x $height label must not be ellipsized", 0, requireNotNull(label.layout).getEllipsisCount(0))
+        }
+    }
+
+    @Test @Config(sdk = [33]) @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun tomorrowTimelineKeepsItsRowsWholeOnASmallWidgetWithLargeFont() {
+        val tomorrow = course.copy(id = "tomorrow", day = 2, name = "高等数学")
+        val data = snapshot().copy(courses = listOf(course, tomorrow))
+        val evening = SimpleDateFormat("yyyy-MM-dd HH:mm").parse("2026-09-07 23:00")!!.time
+        val state = ScheduleWidgetState.from(data, evening)
+        val config = Configuration(context.resources.configuration).apply { fontScale = 1.3f }
+        val scaled = context.createConfigurationContext(config)
+        for ((width, height) in listOf(130 to 130, 130 to 170, 176 to 176)) {
+            val root = ScheduleWidgetRenderer.views(scaled, state, width, height, ScheduleWidgetStyle.Timeline,
+                ScheduleWidgetAppearance(tomorrow = true)).apply(scaled, FrameLayout(scaled)) as ViewGroup
+            val density = scaled.resources.displayMetrics.density
+            root.measure(View.MeasureSpec.makeMeasureSpec((width * density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec((height * density).toInt(), View.MeasureSpec.EXACTLY))
+            root.layout(0, 0, root.measuredWidth, root.measuredHeight)
+            val visible = mutableListOf<TextView>()
+            fun collect(view: View) {
+                if (view.visibility != View.VISIBLE) return
+                if (view is TextView && view.text.isNotEmpty()) visible += view
+                if (view is ViewGroup) for (index in 0 until view.childCount) collect(view.getChildAt(index))
+            }
+            collect(root)
+            for (text in visible) {
+                val rect = Rect(0, 0, text.width, text.height)
+                root.offsetDescendantRectToMyCoords(text, rect)
+                assertTrue("$width x $height clipped ${scaled.resources.getResourceEntryName(text.id)}: $rect",
+                    text.height >= text.lineHeight && rect.top >= 0 && rect.bottom <= root.height)
+                val layout = requireNotNull(text.layout)
+                assertEquals("$width x $height truncated ${text.text}", 0, layout.getEllipsisCount(layout.lineCount - 1))
+            }
         }
     }
 

@@ -3,6 +3,7 @@ package com.tyust.course.schedule
 import android.app.PendingIntent
 import android.content.Context
 import android.content.res.Configuration
+import android.os.SystemClock
 import android.view.View
 import android.widget.RemoteViews
 import com.tyust.course.R
@@ -366,20 +367,11 @@ internal object ScheduleWidgetRenderer {
             views.setTextViewTextSize(R.id.widget_location, android.util.TypedValue.COMPLEX_UNIT_SP, 11f * fit)
             views.visible(R.id.widget_location, true)
             target?.let { deadline ->
-                val remaining = deadline.at - System.currentTimeMillis()
-                if (remaining > 1_000L) {
-                    // Chronometer 的 base 走 SystemClock.elapsedRealtime() 时间轴（开机起算），
-                    // 直接塞墙上时钟毫秒会变成几十万小时。这里换算到开机时间轴，之后由宿主自己走秒。
-                    // 边界、开机、改时间/时区时都会重新渲染，所以只需在渲染时换算一次。
-                    val uptimeBase = deadline.at - System.currentTimeMillis() + android.os.SystemClock.elapsedRealtime()
-                    views.setChronometer(R.id.widget_countdown, uptimeBase, "%s", true)
-                    views.setChronometerCountDown(R.id.widget_countdown, true)
-                } else {
-                    // 已经越过目标却还没收到下一次刷新：钳在 00:00，绝不把负数交给桌面。
-                    views.setChronometerCountDown(R.id.widget_countdown, true)
-                    views.setChronometer(R.id.widget_countdown, android.os.SystemClock.elapsedRealtime(), "%s", false)
-                    views.setTextViewText(R.id.widget_countdown, "00:00")
-                }
+                // Chronometer 的 base 必须换算到开机时间轴；ScheduleCountdownText 会在文本落到桌面
+                // 之前把负数改写成 00:00，所以即使边界广播被系统推迟也不会显示负数。
+                val uptimeBase = deadline.at - System.currentTimeMillis() + SystemClock.elapsedRealtime()
+                views.setChronometer(R.id.widget_countdown, uptimeBase, "%s", true)
+                views.setChronometerCountDown(R.id.widget_countdown, true)
             }
         }
         views.setTextColor(R.id.widget_heading, primary)
@@ -431,7 +423,15 @@ internal object ScheduleWidgetRenderer {
         var showFooter = height >= 232 * scale
         val showStatus = width >= 320 * scale
         val tomorrowOccurrences = if (tomorrowMode) state.tomorrow.map { it.occurrence } else emptyList()
-        val sectionHeight = if (tomorrowMode) fitter.dp(40f) + fitter.dp(6f) else 0
+        // 段标题行实际是 12sp/14sp 两行文字加卡片内边距；按固定 40dp 预留，字体放大后会算少，
+        // 行高合计超过可用高度，最后一行（地点）就会被裁掉。这里按真实文本测量。
+        val sectionHeight = if (tomorrowMode) {
+            fitter.height(listOf(
+                ScheduleWidgetText("今日课程结束", 12f, singleLine = true),
+                ScheduleWidgetText("明日课表", 14f, margin = 2f)
+            )) + fitter.dp(10f)
+        } else 0
+        var showSection = tomorrowMode
         fun status(item: ScheduleOccurrence) = when {
             tomorrowMode -> "明天"
             state.now in item.startsAt until item.endsAt -> "进行中"
@@ -459,7 +459,7 @@ internal object ScheduleWidgetRenderer {
             if (index == 0 && showStatus) field.copy(text = "${field.text}  ${status(item)}") else field
         }
         fun available() = fitter.dp((height - 16).toFloat()) - (if (showHeader) headerHeight else 0) -
-            (if (showFooter) footerHeight else 0) - sectionHeight
+            (if (showFooter) footerHeight else 0) - (if (showSection) sectionHeight else 0)
         fun rowHeight(item: ScheduleOccurrence) = maxOf(fitter.dp(48f), fitter.height(measuredFields(item)) + fitter.dp(8f))
         fun candidates(limit: Int) = if (tomorrowMode) tomorrowOccurrences.take(limit) else timelineItems(state, limit)
         fun fittingRows(): List<ScheduleOccurrence>? {
@@ -475,12 +475,14 @@ internal object ScheduleWidgetRenderer {
         var fitting = fittingRows()
         if (fitting == null) { showFooter = false; fitting = fittingRows() }
         if (fitting == null) { showHeader = false; fitting = fittingRows() }
+        // 小尺寸下如果段标题和课程行仍然放不下，宁可省掉段标题，也不让课程行被裁掉。
+        if (fitting == null) { showSection = false; fitting = fittingRows() }
         val rows = fitting ?: candidates(1)
         views.visible(R.id.widget_header, showHeader)
         views.visible(R.id.widget_footer, showFooter)
         if (!tomorrowMode && rows.firstOrNull()?.let { SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date(it.startsAt)) != todayDate } == true)
             views.setTextViewText(R.id.widget_heading, "接下来的课程")
-        if (tomorrowMode && rows.isNotEmpty()) views.addView(R.id.widget_timeline_rows, timelineSectionRow(context, dark, primary, secondary))
+        if (showSection && rows.isNotEmpty()) views.addView(R.id.widget_timeline_rows, timelineSectionRow(context, dark, primary, secondary))
         views.setOnClickPendingIntent(R.id.widget_root, pending(context, state, action = if (rows.isEmpty() && !tomorrowMode) state.action else ScheduleWidgetAction.Today))
         views.setOnClickPendingIntent(R.id.widget_header, pending(context, state))
         for (item in rows) {
