@@ -367,11 +367,17 @@ internal object ScheduleWidgetRenderer {
             views.setTextViewTextSize(R.id.widget_location, android.util.TypedValue.COMPLEX_UNIT_SP, 11f * fit)
             views.visible(R.id.widget_location, true)
             target?.let { deadline ->
-                // Chronometer 的 base 必须换算到开机时间轴；ScheduleCountdownText 会在文本落到桌面
-                // 之前把负数改写成 00:00，所以即使边界广播被系统推迟也不会显示负数。
-                val uptimeBase = deadline.at - System.currentTimeMillis() + SystemClock.elapsedRealtime()
-                views.setChronometer(R.id.widget_countdown, uptimeBase, "%s", true)
-                views.setChronometerCountDown(R.id.widget_countdown, true)
+                // Chronometer 的 base 必须换算到开机时间轴。目标已经过去时不要再启动宿主计时器：
+                // 框架的 Chronometer 越过 base 后会显示 -00:01，而 RemoteViews 没有在两次刷新之间
+                // 改写宿主文字的接口，所以这里直接静态渲染 00:00，等边界刷新再切换卡片状态。
+                if (deadline.at - System.currentTimeMillis() > 1_000L) {
+                    val uptimeBase = deadline.at - System.currentTimeMillis() + SystemClock.elapsedRealtime()
+                    views.setChronometer(R.id.widget_countdown, uptimeBase, "%s", true)
+                    views.setChronometerCountDown(R.id.widget_countdown, true)
+                } else {
+                    views.setChronometer(R.id.widget_countdown, SystemClock.elapsedRealtime(), "%s", false)
+                    views.setTextViewText(R.id.widget_countdown, "00:00")
+                }
             }
         }
         views.setTextColor(R.id.widget_heading, primary)

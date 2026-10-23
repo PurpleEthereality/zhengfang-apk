@@ -16,9 +16,3 @@
 # Keep this exception exact so other missing runtime dependencies still fail R8.
 -dontwarn com.amap.ams.gnss.GnssSoftLocator
 
-# The countdown widget inflates this custom View from the countdown layout in the
-# launcher process, so the class name and its (Context, AttributeSet) constructor must
-# survive R8.
--keep class com.tyust.course.schedule.ScheduleCountdownText {
-    public <init>(android.content.Context, android.util.AttributeSet);
-}

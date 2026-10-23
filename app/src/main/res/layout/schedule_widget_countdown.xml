@@ -23,7 +23,7 @@
                 android:orientation="vertical" android:paddingBottom="2dp">
                 <TextView android:id="@+id/widget_countdown_label" style="@style/ScheduleWidgetMetadata" android:textColor="#345DC4"
                     android:text="@string/schedule_widget_countdown_label" />
-                <com.tyust.course.schedule.ScheduleCountdownText android:id="@+id/widget_countdown"
+                <Chronometer android:id="@+id/widget_countdown"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"
                     android:textSize="20sp" android:textStyle="bold" android:textColor="#0069D9"
                     android:includeFontPadding="false" android:importantForAccessibility="no"

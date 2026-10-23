@@ -1,6 +1,5 @@
 package com.tyust.course.schedule
 
-import android.app.Activity
 import android.app.Application
 import android.content.Context
 import android.content.res.Configuration
@@ -9,6 +8,7 @@ import android.graphics.Canvas
 import android.graphics.Rect
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Chronometer
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.tyust.course.R
@@ -317,11 +317,13 @@ class ScheduleWidgetTest {
             details.forEach { (id, label) ->
                 if (root.findViewById<View>(id).visibility == View.VISIBLE) assertCompleteLabel(root, id, label)
             }
-            val timer = requireNotNull(root.findViewById<TextView>(R.id.widget_countdown))
-            // 自定义倒计时 View 每秒重算剩余时间；刚渲染时应显示 45 分钟附近，而不是错误的时间轴。
-            val shown = timer.text.toString()
-            assertTrue("$size countdown shows the remaining time instead of a stale timebase: $shown",
-                shown == "45:00" || shown == "44:59")
+            val timer = requireNotNull(root.findViewById<Chronometer>(R.id.widget_countdown))
+            assertTrue("$size timer must count down", timer.isCountDown)
+            // Chronometer 的 base 必须落在开机时间轴上：剩余时间要等于墙上时钟的剩余时间。
+            val remainingOnWidget = timer.base - android.os.SystemClock.elapsedRealtime()
+            val remainingOnClock = requireNotNull(state.countdownAt) - System.currentTimeMillis()
+            assertTrue("$size countdown must use the uptime timebase: $remainingOnWidget vs $remainingOnClock",
+                kotlin.math.abs(remainingOnWidget - remainingOnClock) < 60_000L)
             assertTrue("$size header", root.findViewById<View>(R.id.widget_header).isClickable)
             assertTrue(root.findViewById<View>(R.id.widget_course).performClick())
             ScheduleWidgetNavigation.accept(shadowOf(context as Application).nextStartedActivity)
@@ -345,25 +347,46 @@ class ScheduleWidgetTest {
     }
 
     @Test @Config(sdk = [33]) @GraphicsMode(GraphicsMode.Mode.NATIVE)
-    fun runningCountdownStopsAtZeroInsteadOfCountingIntoNegativeNumbers() {
-        // 先渲染一个仍在未来的目标，再只推进宿主时间、不重新渲染：模拟边界广播被系统推迟。
-        // 目标留 1 分钟，避免 Robolectric 首次 inflate 的耗时把目标提前跨过去。
+    fun countdownRendersZeroInsteadOfNegativeNumbersWhenTheTargetAlreadyPassed() {
+        // 边界广播被系统推迟、目标时间已经过去时才重新渲染：不能再启动宿主计时器，
+        // 否则框架的 Chronometer 会显示 -00:01；此时必须直接静态渲染 00:00。
         val state = ScheduleWidgetState.from(snapshot(), now)
-            .copy(countdownAt = System.currentTimeMillis() + 60_000L, countdownLabel = "距下课")
-        // 把组件挂到真实窗口上，Chronometer 才会像在桌面上一样每秒推进。
-        val activity = org.robolectric.Robolectric.buildActivity(Activity::class.java).setup().get()
-        val parent = FrameLayout(activity)
-        activity.setContentView(parent)
+            .copy(countdownAt = System.currentTimeMillis() - 5_000L, countdownLabel = "距下课")
         val root = ScheduleWidgetRenderer.views(context, state, 280, 128, ScheduleWidgetStyle.Countdown)
-            .apply(activity, parent) as ViewGroup
-        parent.addView(root)
+            .apply(context, FrameLayout(context)) as ViewGroup
         val timer = requireNotNull(root.findViewById<TextView>(R.id.widget_countdown))
-        assertNotEquals("countdown starts in the future: ${timer.text}", "00:00", timer.text.toString())
-        // 旧实现（Chronometer）越过 base 后会继续走成 -00:xx；新的倒计时 View 必须停在 00:00。
-        repeat(65) { shadowOf(android.os.Looper.getMainLooper()).idleFor(1, java.util.concurrent.TimeUnit.SECONDS) }
         assertEquals("00:00", timer.text.toString())
-        assertFalse("stale countdown must not keep counting down", timer.text.toString().startsWith("-"))
+        assertFalse("past countdown must not render a negative number", timer.text.toString().startsWith("-"))
         assertEquals(View.VISIBLE, root.findViewById<View>(R.id.widget_countdown_box).visibility)
+    }
+
+    /**
+     * 桌面小组件在 Launcher 进程 inflate RemoteViews 布局。这里把宿主 ClassLoader 限制成看不到
+     * com.tyust.course.*（模拟 Launcher 只加载系统类），四个组件布局都必须能正常 inflate。
+     * 之前倒计时布局用了 App 自定义的 Chronometer 子类，在真实桌面会 InflateException。
+     */
+    @Test fun widgetLayoutsInflateUnderAnIsolatedLauncherClassLoader() {
+        val hostLoader = object : ClassLoader(ScheduleWidgetTest::class.java.classLoader) {
+            override fun loadClass(name: String, resolve: Boolean): Class<*> {
+                if (name.startsWith("com.tyust.course."))
+                    throw ClassNotFoundException("launcher cannot load provider code: $name")
+                return super.loadClass(name, resolve)
+            }
+        }
+        val isolated = object : android.content.ContextWrapper(context) {
+            override fun getClassLoader(): ClassLoader = hostLoader
+        }
+        val inflater = android.view.LayoutInflater.from(context).cloneInContext(isolated)
+        val layouts = mapOf(
+            "single" to R.layout.schedule_widget_single,
+            "double" to R.layout.schedule_widget,
+            "timeline" to R.layout.schedule_widget_timeline,
+            "countdown" to R.layout.schedule_widget_countdown
+        )
+        for ((name, layoutId) in layouts) {
+            val root = requireNotNull(inflater.inflate(layoutId, FrameLayout(isolated), false)) as ViewGroup
+            assertTrue("$name widget layout must inflate with only platform views", root.childCount > 0)
+        }
     }
 
     @Test fun segmentedCountdownSplitsALongClassAtTheBreakButLabelsItAsABreak() {
